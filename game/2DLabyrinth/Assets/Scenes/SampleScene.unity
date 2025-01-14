@@ -600,7 +600,7 @@ MonoBehaviour:
   playerPrefab: {fileID: 285303691}
   cameraFollower: {fileID: 519420034}
   enemyPrefab: {fileID: 1107838581}
-  enemyCount: 0
+  enemyCount: 1
 --- !u!4 &2044487021
 Transform:
   m_ObjectHideFlags: 0
