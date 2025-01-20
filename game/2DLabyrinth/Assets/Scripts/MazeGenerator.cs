@@ -10,23 +10,29 @@ public class MazeGenerator : MonoBehaviour
     public int cellsY = 10;
 
     [Header("Sprites / Prefabs")]
-    public Sprite squareSprite;
-    public GameObject playerPrefab; 
+    public Sprite floorSprite;        // Boden-Sprite
+    public Sprite wallSprite;         // Wand-Sprite
+    public Sprite safepointSprite;    // Safepoint-Sprite
+    public GameObject playerPrefab;   // Player-Prefab
 
     [Header("Camera Settings")]
-    public CameraFollower cameraFollower; 
-    
+    public CameraFollower cameraFollower; // Kamera-Follower-Skript
+
     [Header("Enemy Settings")]
-    public GameObject enemyPrefab;   
-    public int enemyCount = 5;        
-    
-    private List<Vector2Int> floorCells = new List<Vector2Int>(); 
+    public GameObject enemyPrefab;    // Enemy-Prefab
+    public int enemyCount = 5;        // Anzahl der Gegner
+
+    [Header("Tile Einstellungen")]
+    [Tooltip("Skalierungsfaktor für jedes Tile.")]
+    public float tileScale = 2.0f;    // Skalierungsfaktor für Tiles
+
+    private List<Vector2Int> floorCells = new List<Vector2Int>(); // Liste begehbarer Zellen
 
     public static MazeGenerator Instance { get; private set; }
 
-    private bool[,] grid;
-    private int realWidth;      
-    private int realHeight;     
+    private int[,] grid; // 0: Floor, 1: Wall, 2: Safepoint
+    private int realWidth;
+    private int realHeight;
 
     private Vector2Int entrancePos;
     private Vector2Int exitPos;
@@ -83,20 +89,23 @@ public class MazeGenerator : MonoBehaviour
 
         realWidth  = cellsX * 2 + 1;
         realHeight = cellsY * 2 + 1;
-        grid = new bool[realWidth, realHeight];
+        grid = new int[realWidth, realHeight];
 
+        // Initialisiere alle Zellen als Wände (1)
         for (int x = 0; x < realWidth; x++)
         {
             for (int y = 0; y < realHeight; y++)
             {
-                grid[x, y] = true;
+                grid[x, y] = 1; // 1 für Wand
             }
         }
 
-        grid[1, 1] = false;
+        // Startpunkt öffnen
+        grid[1, 1] = 0; // 0 für begehbares Feld
         Stack<Vector2Int> stack = new Stack<Vector2Int>();
         stack.Push(new Vector2Int(1, 1));
 
+        // Maze Generation mittels Tiefensuche
         while (stack.Count > 0)
         {
             var current = stack.Peek();
@@ -107,9 +116,9 @@ public class MazeGenerator : MonoBehaviour
                 var chosen = unvisited[Random.Range(0, unvisited.Count)];
                 int wallX = (current.x + chosen.x) / 2;
                 int wallY = (current.y + chosen.y) / 2;
-                grid[wallX, wallY] = false;
+                grid[wallX, wallY] = 0; // Weg öffnen
 
-                grid[chosen.x, chosen.y] = false;
+                grid[chosen.x, chosen.y] = 0; // Weg öffnen
 
                 stack.Push(chosen);
             }
@@ -119,12 +128,13 @@ public class MazeGenerator : MonoBehaviour
             }
         }
 
+        // Eingang und Ausgang setzen
         entrancePos = new Vector2Int(1, 0);
-        grid[entrancePos.x, entrancePos.y] = false; 
+        grid[entrancePos.x, entrancePos.y] = 0; 
         Debug.Log($"Eingang bei: ({entrancePos.x}, {entrancePos.y})");
 
         exitPos = new Vector2Int(realWidth - 2, realHeight - 1);
-        grid[exitPos.x, exitPos.y] = false; 
+        grid[exitPos.x, exitPos.y] = 0; 
         Debug.Log($"Ausgang bei: ({exitPos.x}, {exitPos.y})");
 
         CreateTiles();
@@ -136,15 +146,19 @@ public class MazeGenerator : MonoBehaviour
         SpawnPlayer();
 
         SpawnEnemies();
+
+        PlaceSafepoints(); // Safepoints nach der Maze-Generierung platzieren
+
+        PrintGrid(); // Optional: Grid zur Überprüfung ausgeben
     }
-    
+
     private void CollectFloorCells()
     {
         for (int x = 0; x < realWidth; x++)
         {
             for (int y = 0; y < realHeight; y++)
             {
-                if (!grid[x, y])
+                if (grid[x, y] == 0)
                 {
                     if (!((x == entrancePos.x && y == entrancePos.y) || (x == exitPos.x && y == exitPos.y)))
                     {
@@ -156,7 +170,7 @@ public class MazeGenerator : MonoBehaviour
 
         Debug.Log($"Anzahl begehbarer Zellen (exkl. Eingang/Ausgang): {floorCells.Count}");
     }
-    
+
     private void SpawnEnemies()
     {
         if (enemyPrefab == null)
@@ -191,26 +205,53 @@ public class MazeGenerator : MonoBehaviour
             Debug.Log($"Gegner {i + 1} gespawnt bei: {spawnPosition}");
         }
     }
-    
+
     private void CreateTiles()
     {
-        Vector3 mazeOffset = new Vector3(-cellsX, -cellsY, 0f); 
+        // Berechne den Offset basierend auf der Tile-Größe
+        Vector3 mazeOffset = new Vector3(-cellsX * tileScale, -cellsY * tileScale, 0f); 
 
         for (int x = 0; x < realWidth; x++)
         {
             for (int y = 0; y < realHeight; y++)
             {
                 GameObject tile = new GameObject($"Tile_{x}_{y}");
-                tile.transform.position = new Vector3(x, y, 0f) + mazeOffset;
+                // Positioniere das Tile basierend auf der Tile-Größe
+                tile.transform.position = new Vector3(x * tileScale, y * tileScale, 0f) + mazeOffset;
+
+                // Setze die Skalierung des Tiles
+                tile.transform.localScale = new Vector3(tileScale, tileScale, 1f);
 
                 var sr = tile.AddComponent<SpriteRenderer>();
-                sr.sprite = squareSprite;
 
-                if (grid[x, y])
+                // Layer-Zuweisung für begehbare Felder und Safepoints
+                int floorLayer = LayerMask.NameToLayer("Floor");
+                if (floorLayer == -1)
                 {
-                    sr.color = Color.black;
+                    Debug.LogWarning("Layer 'Floor' nicht gefunden. Verwende Standard-Layer (0).");
+                    floorLayer = 0; // Standard-Layer
+                }
+                tile.layer = floorLayer;
+
+                if (grid[x, y] == 1)
+                {
+                    // Wände
+                    if (wallSprite != null)
+                    {
+                        sr.sprite = wallSprite;
+                    }
+                    sr.color = Color.white; // Farbe des Wand-Sprites (optional anpassen)
                     sr.sortingLayerName = "Walls";     
                     sr.sortingOrder = 0;                
+
+                    int wallsLayer = LayerMask.NameToLayer("Walls");
+                    if (wallsLayer == -1)
+                    {
+                        Debug.LogWarning("Layer 'Walls' nicht gefunden. Verwende Standard-Layer (0).");
+                        wallsLayer = 0; // Standard-Layer
+                    }
+                    tile.layer = wallsLayer;
+
                     var collider = tile.AddComponent<BoxCollider2D>();
                     var rb = tile.AddComponent<Rigidbody2D>();
                     rb.bodyType = RigidbodyType2D.Static;
@@ -219,36 +260,71 @@ public class MazeGenerator : MonoBehaviour
                 {
                     if (x == entrancePos.x && y == entrancePos.y)
                     {
+                        // Eingang
+                        if (floorSprite != null)
+                        {
+                            sr.sprite = floorSprite;
+                        }
                         sr.color = Color.green; 
+                        sr.sortingLayerName = "Floor";   
+                        sr.sortingOrder = 0;                  
                         Debug.Log($"Eingang Tile erstellt bei: ({x}, {y})");
                     }
                     else if (x == exitPos.x && y == exitPos.y)
                     {
+                        // Ausgang
+                        if (floorSprite != null)
+                        {
+                            sr.sprite = floorSprite;
+                        }
                         sr.color = Color.red; 
+                        sr.sortingLayerName = "Floor";   
+                        sr.sortingOrder = 0;                  
                         Debug.Log($"Ausgang Tile erstellt bei: ({x}, {y})");
+                    }
+                    else if (grid[x, y] == 2)
+                    {
+                        // Safepoints
+                        if (safepointSprite != null)
+                        {
+                            sr.sprite = safepointSprite;
+                        }
+                        else
+                        {
+                            sr.sprite = floorSprite; // Fallback auf Boden-Sprite
+                            sr.color = new Color(1f, 0.5f, 0f); // Orange Farbe
+                        }
+                        sr.sortingLayerName = "Floor";   
+                        sr.sortingOrder = 0;                  
+                        // Keine Collider hinzufügen für Safepoints
                     }
                     else
                     {
+                        // Normale begehbare Felder
+                        if (floorSprite != null)
+                        {
+                            sr.sprite = floorSprite;
+                        }
                         sr.color = Color.white; 
+                        sr.sortingLayerName = "Floor";   
+                        sr.sortingOrder = 0;                  
                     }
-
-                    sr.sortingLayerName = "Floor";   
-                    sr.sortingOrder = 0;                  
                 }
 
                 tile.transform.parent = this.transform;
             }
         }
     }
+
     private void CreateBoundary()
     {
         GameObject boundary = new GameObject("MazeBoundary");
         boundary.transform.parent = this.transform;
 
-        CreateWall(boundary, new Vector2(0, realHeight / 2 + 0.5f), new Vector2(realWidth + 2f, 1f));
-        CreateWall(boundary, new Vector2(0, -realHeight / 2 - 0.5f), new Vector2(realWidth + 2f, 1f));
-        CreateWall(boundary, new Vector2(-realWidth / 2 - 0.5f, 0), new Vector2(1f, realHeight + 2f));
-        CreateWall(boundary, new Vector2(realWidth / 2 + 0.5f, 0), new Vector2(1f, realHeight + 2f));
+        CreateWall(boundary, new Vector2(0, realHeight * tileScale / 2 + tileScale / 2), new Vector2(realWidth * tileScale + 2f * tileScale, tileScale));
+        CreateWall(boundary, new Vector2(0, -realHeight * tileScale / 2 - tileScale / 2), new Vector2(realWidth * tileScale + 2f * tileScale, tileScale));
+        CreateWall(boundary, new Vector2(-realWidth * tileScale / 2 - tileScale / 2, 0), new Vector2(tileScale, realHeight * tileScale + 2f * tileScale));
+        CreateWall(boundary, new Vector2(realWidth * tileScale / 2 + tileScale / 2, 0), new Vector2(tileScale, realHeight * tileScale + 2f * tileScale));
     }
 
     private void CreateWall(GameObject parent, Vector2 position, Vector2 size)
@@ -257,8 +333,17 @@ public class MazeGenerator : MonoBehaviour
         wall.transform.position = position;
         wall.transform.parent = parent.transform;
 
+        // Layer-Zuweisung für Boundary-Wände
+        int wallsLayer = LayerMask.NameToLayer("Walls");
+        if (wallsLayer == -1)
+        {
+            Debug.LogWarning("Layer 'Walls' nicht gefunden. Verwende Standard-Layer (0).");
+            wallsLayer = 0; // Standard-Layer
+        }
+        wall.layer = wallsLayer;
+
         BoxCollider2D collider = wall.AddComponent<BoxCollider2D>();
-        collider.size = size;
+        collider.size = size / tileScale; // Collider-Größe an die Tile-Skalierung anpassen
 
         Rigidbody2D rb = wall.AddComponent<Rigidbody2D>();
         rb.bodyType = RigidbodyType2D.Static;
@@ -276,8 +361,8 @@ public class MazeGenerator : MonoBehaviour
                 return;
             }
 
-            Vector3 mazeOffset = new Vector3(-cellsX, -cellsY, 0f); 
-            Vector3 spawnPosition = new Vector3(entrancePos.x, entrancePos.y, 0f) + mazeOffset;
+            Vector3 mazeOffset = new Vector3(-cellsX * tileScale, -cellsY * tileScale, 0f); 
+            Vector3 spawnPosition = new Vector3(entrancePos.x * tileScale, entrancePos.y * tileScale, 0f) + mazeOffset;
             Debug.Log($"Berechnete Spawn-Position: {spawnPosition}");
 
             GameObject playerObj = Instantiate(playerPrefab, spawnPosition, Quaternion.identity);
@@ -312,6 +397,7 @@ public class MazeGenerator : MonoBehaviour
             Debug.LogWarning("Kein PlayerPrefab zugewiesen oder Spieler bereits gespawnt!");
         }
     }
+
     private void SetPlayerBoundary()
     {
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
@@ -320,7 +406,8 @@ public class MazeGenerator : MonoBehaviour
             PlayerBoundary boundary = playerObj.GetComponent<PlayerBoundary>();
             if (boundary != null)
             {
-                boundary.SetBounds(-CellsX, CellsX, -CellsY, CellsY);
+                // Grenzen basierend auf Tile-Größe setzen
+                boundary.SetBounds(-CellsX * tileScale, CellsX * tileScale, -CellsY * tileScale, CellsY * tileScale);
                 Debug.Log("PlayerBoundary wurde gesetzt.");
             }
             else
@@ -350,7 +437,7 @@ public class MazeGenerator : MonoBehaviour
             int ny = y + d.y;
             if (nx > 0 && nx < realWidth - 1 && ny > 0 && ny < realHeight - 1)
             {
-                if (grid[nx, ny] == true)
+                if (grid[nx, ny] == 1)
                 {
                     result.Add(new Vector2Int(nx, ny));
                 }
@@ -358,6 +445,7 @@ public class MazeGenerator : MonoBehaviour
         }
         return result;
     }
+
     public List<Vector3> FindPath(Vector3 startPos, Vector3 targetPos)
     {
         Vector2Int startCell = WorldToCell(startPos);
@@ -377,17 +465,17 @@ public class MazeGenerator : MonoBehaviour
 
     private Vector2Int WorldToCell(Vector3 worldPos)
     {
-        Vector3 mazeOffset = new Vector3(-cellsX, -cellsY, 0f);
+        Vector3 mazeOffset = new Vector3(-cellsX * tileScale, -cellsY * tileScale, 0f);
         Vector3 localPos = worldPos - mazeOffset;
-        int x = Mathf.RoundToInt(localPos.x);
-        int y = Mathf.RoundToInt(localPos.y);
+        int x = Mathf.RoundToInt(localPos.x / tileScale);
+        int y = Mathf.RoundToInt(localPos.y / tileScale);
         return new Vector2Int(x, y);
     }
 
     private Vector3 CellToWorld(Vector2Int cell)
     {
-        Vector3 mazeOffset = new Vector3(-cellsX, -cellsY, 0f);
-        return new Vector3(cell.x, cell.y, 0f) + mazeOffset;
+        Vector3 mazeOffset = new Vector3(-cellsX * tileScale, -cellsY * tileScale, 0f);
+        return new Vector3(cell.x * tileScale, cell.y * tileScale, 0f) + mazeOffset;
     }
 
     private List<Vector2Int> AStarPathfinding(Vector2Int start, Vector2Int goal)
@@ -425,6 +513,10 @@ public class MazeGenerator : MonoBehaviour
             foreach (var neighbor in GetNeighbors(current))
             {
                 if (closedSet.Contains(neighbor))
+                    continue;
+
+                // Ignoriere Safepoints für Gegner
+                if (grid[neighbor.x, neighbor.y] == 2)
                     continue;
 
                 int tentative_gScore = gScore[current] + 1; 
@@ -487,8 +579,120 @@ public class MazeGenerator : MonoBehaviour
     {
         if (cell.x >= 0 && cell.x < realWidth && cell.y >= 0 && cell.y < realHeight)
         {
-            return !grid[cell.x, cell.y];
+            // Für den Spieler sind sowohl normale Böden (0) als auch Safepoints (2) begehbar
+            return grid[cell.x, cell.y] == 0 || grid[cell.x, cell.y] == 2;
         }
         return false;
+    }
+
+    private void PlaceSafepoints()
+    {
+        List<Vector2Int> cornerTiles = new List<Vector2Int>();
+
+        for (int x = 1; x < realWidth - 1; x++)
+        {
+            for (int y = 1; y < realHeight - 1; y++)
+            {
+                if (grid[x, y] == 1)
+                {
+                    // Überprüfe die Nachbarn, um Ecken zu finden
+                    bool isCorner = false;
+
+                    // Oben links
+                    if (grid[x + 1, y] == 0 && grid[x, y + 1] == 0)
+                        isCorner = true;
+                    
+                    // Oben rechts
+                    if (grid[x - 1, y] == 0 && grid[x, y + 1] == 0)
+                        isCorner = true;
+
+                    // Unten links
+                    if (grid[x + 1, y] == 0 && grid[x, y - 1] == 0)
+                        isCorner = true;
+
+                    // Unten rechts
+                    if (grid[x - 1, y] == 0 && grid[x, y - 1] == 0)
+                        isCorner = true;
+
+                    if (isCorner)
+                    {
+                        cornerTiles.Add(new Vector2Int(x, y));
+                    }
+                }
+            }
+        }
+
+        // Wähle eine bestimmte Anzahl der Eck-Tiles als Safepoints aus
+        int numberOfSafepoints = Mathf.Max(1, cornerTiles.Count / 10); // Beispiel: 10% der Ecken
+        List<Vector2Int> selectedSafepoints = new List<Vector2Int>();
+        int minDistance = 3; // Mindestabstand zwischen Safepoints
+
+        for (int i = 0; i < numberOfSafepoints; i++)
+        {
+            if (cornerTiles.Count == 0) break;
+            int index = Random.Range(0, cornerTiles.Count);
+            Vector2Int selectedPos = cornerTiles[index];
+
+            if (IsFarEnough(selectedPos, selectedSafepoints, minDistance))
+            {
+                selectedSafepoints.Add(selectedPos);
+                cornerTiles.RemoveAt(index);
+            }
+        }
+
+        // Markiere die ausgewählten Safepoints
+        foreach (Vector2Int pos in selectedSafepoints)
+        {
+            grid[pos.x, pos.y] = 2; // 2 für Safepoint
+            UpdateTileVisual(pos.x, pos.y);
+        }
+
+        Debug.Log($"Anzahl der Safepoints: {selectedSafepoints.Count}");
+    }
+
+    private bool IsFarEnough(Vector2Int pos, List<Vector2Int> selectedSafepoints, int minDistance)
+    {
+        foreach (var safepoint in selectedSafepoints)
+        {
+            if (Vector2Int.Distance(pos, safepoint) < minDistance)
+                return false;
+        }
+        return true;
+    }
+
+    private void UpdateTileVisual(int x, int y)
+    {
+        // Finde das entsprechende Tile-GameObject
+        Transform tileTransform = transform.Find($"Tile_{x}_{y}");
+        if (tileTransform != null)
+        {
+            SpriteRenderer sr = tileTransform.GetComponent<SpriteRenderer>();
+            if (sr != null)
+            {
+                if (safepointSprite != null)
+                {
+                    sr.sprite = safepointSprite;
+                }
+                else
+                {
+                    sr.color = new Color(1f, 0.5f, 0f); // Orange Farbe als Fallback
+                }
+            }
+        }
+    }
+
+    // Optional: Methode zur Visualisierung des Grids in der Konsole
+    private void PrintGrid()
+    {
+        string gridString = "";
+        for (int y = realHeight - 1; y >= 0; y--)
+        {
+            for (int x = 0; x < realWidth; x++)
+            {
+                gridString += grid[x, y].ToString() + " ";
+            }
+            gridString += "\n";
+        }
+        Debug.Log(gridString);
     }
 }

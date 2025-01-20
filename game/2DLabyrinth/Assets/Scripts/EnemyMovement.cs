@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 public class EnemyMovement : MonoBehaviour
 {
+    [Header("Bewegungseinstellungen")]
     public float moveSpeed = 2f;          
     private List<Vector3> path = new List<Vector3>(); 
     private int targetIndex = 0;         
