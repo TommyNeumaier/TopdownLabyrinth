@@ -4,34 +4,34 @@ using System.Collections.Generic;
 
 public class EnemyMovement : MonoBehaviour
 {
-        public float moveSpeed = 2f;             // Bewegungsgeschwindigkeit
+    public float moveSpeed = 2f;             // Bewegungsgeschwindigkeit
     public float cellCenterThreshold = 0.05f; // Abstand, ab dem wir "im Zellzentrum" sind
 
     private Rigidbody2D rb;
     private MazeManager mazeManager;
-    private Transform playerTransform;
+    private Transform playerTransform; // (wird nicht mehr für Pfadfinden gebraucht, kann aber bleiben)
 
     // Tilebasierte Zustände
     private Vector2Int currentCell;   // Zelle, in der wir uns aktuell befinden
-    private Vector2Int targetCell;    // Zelle, zu der wir uns aktuell hinbewegen (ein Schritt)
-    private Vector3 targetWorldPos;   // Weltposition des Zellenzentrums targetCell
+    private Vector2Int targetCell;    // Zelle, zu der wir uns aktuell hinbewegen
+    private Vector3 targetWorldPos;   // Weltposition des Zellenzentrums
 
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         rb.gravityScale = 0f;
         rb.constraints = RigidbodyConstraints2D.FreezeRotation;
-        rb.bodyType = RigidbodyType2D.Kinematic; // Kinematic, damit wir manuell steuern
+        rb.bodyType = RigidbodyType2D.Kinematic;
 
-        // MazeManager suchen (modernes Unity: FindFirstObjectByType statt FindObjectOfType)
-        mazeManager = Object.FindFirstObjectByType<MazeManager>();
+        // MazeManager suchen
+        mazeManager = MazeManager.Instance;
         if (mazeManager == null)
         {
             Debug.LogError("Kein MazeManager in der Szene gefunden!");
             return;
         }
 
-        // Player suchen
+        // Player suchen (nur falls du z.B. Abstände messen oder Kollision checken willst)
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
         {
@@ -40,26 +40,25 @@ public class EnemyMovement : MonoBehaviour
 
         // 1) Starte in einer gültigen Zelle
         currentCell = mazeManager.WorldToCell(transform.position);
-        if (mazeManager.IsWall(currentCell))
+        if (mazeManager.IsCellBlockedForEnemy(currentCell))
         {
-            // Falls wir in der Wand sind, nimm z.B. (1,1)
-            currentCell = new Vector2Int(1,1);
+            // Falls wir in einer Wand oder auf einem Safepoint stehen:
+            currentCell = new Vector2Int(1, 1);
         }
-        // Das erste Ziel = currentCell (wir stehen schon dort)
         targetCell = currentCell;
         targetWorldPos = mazeManager.CellToWorld(targetCell);
-        transform.position = targetWorldPos; // Snap in die Mitte
+        transform.position = targetWorldPos; // In Mitte snappen
     }
 
     void Update()
     {
-        if (mazeManager == null || playerTransform == null) return;
+        if (mazeManager == null) return;
 
-        // Prüfe, ob wir nahe am Mittelpunkt von targetCell sind
+        // Prüfen, ob wir nahe am Mittelpunkt von targetCell sind
         float dist = Vector3.Distance(transform.position, targetWorldPos);
         if (dist < cellCenterThreshold)
         {
-            // Wir sind an einer "Kreuzung" => Neuen Schritt im Pfad wählen
+            // Wir sind quasi im Zellzentrum => neue Richtung / neuen Schritt wählen
             currentCell = targetCell; 
             ChooseNextStep();
         }
@@ -73,35 +72,48 @@ public class EnemyMovement : MonoBehaviour
     }
 
     /// <summary>
-    /// Bestimmt per Pfadfindung (FindPath) den Weg zum Spieler
-    /// und nimmt den ersten Schritt. So verhalten wir uns wie Pacman-Geister.
+    /// Wählt **zufällig** eine benachbarte Zelle aus, die weder Wand noch Safepoint ist.
+    /// (Dadurch betritt der Gegner keine Safe Spaces.)
     /// </summary>
     private void ChooseNextStep()
     {
-        // 1) Player-Zelle
-        Vector2Int playerCell = mazeManager.WorldToCell(playerTransform.position);
-
-        // 2) BFS/A*-Pfad erfragen
-        List<Vector3> pathWorld = mazeManager.FindPath(
-            mazeManager.CellToWorld(currentCell),    // Start in Weltkoords
-            mazeManager.CellToWorld(playerCell)      // Ziel in Weltkoords
-        );
-        // Falls leer oder zu kurz => bleib stehen
-        if (pathWorld.Count < 2)
+        // 4 mögliche Richtungen
+        Vector2Int[] directions =
         {
-            // Kein Pfad => wir bleiben in currentCell
+            new Vector2Int( 1, 0),
+            new Vector2Int(-1, 0),
+            new Vector2Int( 0, 1),
+            new Vector2Int( 0,-1)
+        };
+
+        // Sammle alle Nachbarn, die NICHT blockiert sind
+        List<Vector2Int> validNeighbors = new List<Vector2Int>();
+        foreach (var dir in directions)
+        {
+            Vector2Int neighbor = currentCell + dir;
+            // "IsCellBlockedForEnemy" => true = Wand oder Safepoint
+            if (!mazeManager.IsCellBlockedForEnemy(neighbor))
+            {
+                validNeighbors.Add(neighbor);
+            }
+        }
+
+        // Wenn keine gültige Richtung vorhanden, bleibe stehen
+        if (validNeighbors.Count == 0)
+        {
             targetCell = currentCell;
             targetWorldPos = mazeManager.CellToWorld(currentCell);
             return;
         }
 
-        // 3) pathWorld[0] ist currentCell => pathWorld[1] ist der nächste Schritt
-        Vector3 nextPos = pathWorld[1];
-        targetCell = mazeManager.WorldToCell(nextPos);
-        targetWorldPos = nextPos;
+        // Zufällig eine der gültigen Zellen wählen
+        Vector2Int chosenCell = validNeighbors[Random.Range(0, validNeighbors.Count)];
+
+        targetCell = chosenCell;
+        targetWorldPos = mazeManager.CellToWorld(targetCell);
     }
 
-    // Optional: Kollision mit Player -> Kill
+    // Optional: Falls Kollision mit Spieler -> GameOver
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (collision.gameObject.CompareTag("Player"))
@@ -112,7 +124,7 @@ public class EnemyMovement : MonoBehaviour
                 Debug.Log("Spieler ist unsterblich -> kein Kill!");
                 return;
             }
-            Debug.Log("Gegner (Pacman-Style) hat den Spieler erwischt!");
+            Debug.Log("Gegner hat den Spieler erwischt!");
             GameManager.Instance.GameOver(false);
         }
     }
