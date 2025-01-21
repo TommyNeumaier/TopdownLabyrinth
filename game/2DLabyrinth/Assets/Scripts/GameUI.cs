@@ -10,7 +10,11 @@ public class GameUI : MonoBehaviour
     void Update()
     {
         remainingTime -= Time.deltaTime;
-        if (remainingTime < 0) remainingTime = 0;
+        if (remainingTime < 0)
+        {
+            GameManager.Instance.GameOver(false);
+            remainingTime = 0;
+        }
 
         // Text aktualisieren
         if (timerText != null)

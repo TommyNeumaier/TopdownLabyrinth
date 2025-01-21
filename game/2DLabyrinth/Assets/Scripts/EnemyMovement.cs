@@ -4,62 +4,104 @@ using System.Collections.Generic;
 
 public class EnemyMovement : MonoBehaviour
 {
-    public float moveSpeed = 2f;
+        public float moveSpeed = 2f;             // Bewegungsgeschwindigkeit
+    public float cellCenterThreshold = 0.05f; // Abstand, ab dem wir "im Zellzentrum" sind
 
-    private List<Vector3> path = new List<Vector3>();
-    private int targetIndex = 0;
-
-    private Transform playerTransform;
+    private Rigidbody2D rb;
     private MazeManager mazeManager;
+    private Transform playerTransform;
+
+    // Tilebasierte Zustände
+    private Vector2Int currentCell;   // Zelle, in der wir uns aktuell befinden
+    private Vector2Int targetCell;    // Zelle, zu der wir uns aktuell hinbewegen (ein Schritt)
+    private Vector3 targetWorldPos;   // Weltposition des Zellenzentrums targetCell
 
     void Start()
     {
-        // Suche einmalig den MazeManager in der Szene
-        mazeManager = FindObjectOfType<MazeManager>();
+        rb = GetComponent<Rigidbody2D>();
+        rb.gravityScale = 0f;
+        rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+        rb.bodyType = RigidbodyType2D.Kinematic; // Kinematic, damit wir manuell steuern
+
+        // MazeManager suchen (modernes Unity: FindFirstObjectByType statt FindObjectOfType)
+        mazeManager = Object.FindFirstObjectByType<MazeManager>();
         if (mazeManager == null)
         {
             Debug.LogError("Kein MazeManager in der Szene gefunden!");
+            return;
         }
 
-        // Spieler
-        GameObject player = GameObject.FindGameObjectWithTag("Player");
-        if (player != null)
+        // Player suchen
+        GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+        if (playerObj != null)
         {
-            playerTransform = player.transform;
+            playerTransform = playerObj.transform;
         }
 
-        StartCoroutine(UpdatePath());
+        // 1) Starte in einer gültigen Zelle
+        currentCell = mazeManager.WorldToCell(transform.position);
+        if (mazeManager.IsWall(currentCell))
+        {
+            // Falls wir in der Wand sind, nimm z.B. (1,1)
+            currentCell = new Vector2Int(1,1);
+        }
+        // Das erste Ziel = currentCell (wir stehen schon dort)
+        targetCell = currentCell;
+        targetWorldPos = mazeManager.CellToWorld(targetCell);
+        transform.position = targetWorldPos; // Snap in die Mitte
     }
 
     void Update()
     {
-        if (path == null || path.Count == 0) return;
-        if (targetIndex >= path.Count) return;
+        if (mazeManager == null || playerTransform == null) return;
 
-        Vector3 dir = (path[targetIndex] - transform.position).normalized;
-        Vector3 move = dir * moveSpeed * Time.deltaTime;
-        transform.position += move;
-
-        if (Vector3.Distance(transform.position, path[targetIndex]) < 0.2f)
+        // Prüfe, ob wir nahe am Mittelpunkt von targetCell sind
+        float dist = Vector3.Distance(transform.position, targetWorldPos);
+        if (dist < cellCenterThreshold)
         {
-            targetIndex++;
+            // Wir sind an einer "Kreuzung" => Neuen Schritt im Pfad wählen
+            currentCell = targetCell; 
+            ChooseNextStep();
         }
     }
 
-    private IEnumerator UpdatePath()
+    void FixedUpdate()
     {
-        while (true)
-        {
-            if (mazeManager != null && playerTransform != null)
-            {
-                path = mazeManager.FindPath(transform.position, playerTransform.position);
-                targetIndex = 0;
-            }
-            // Pfad ca. 1x pro Sekunde aktualisieren
-            yield return new WaitForSeconds(1f);
-        }
+        // Bewege dich Richtung targetWorldPos
+        Vector3 dir = (targetWorldPos - transform.position).normalized;
+        rb.linearVelocity = dir * moveSpeed;
     }
 
+    /// <summary>
+    /// Bestimmt per Pfadfindung (FindPath) den Weg zum Spieler
+    /// und nimmt den ersten Schritt. So verhalten wir uns wie Pacman-Geister.
+    /// </summary>
+    private void ChooseNextStep()
+    {
+        // 1) Player-Zelle
+        Vector2Int playerCell = mazeManager.WorldToCell(playerTransform.position);
+
+        // 2) BFS/A*-Pfad erfragen
+        List<Vector3> pathWorld = mazeManager.FindPath(
+            mazeManager.CellToWorld(currentCell),    // Start in Weltkoords
+            mazeManager.CellToWorld(playerCell)      // Ziel in Weltkoords
+        );
+        // Falls leer oder zu kurz => bleib stehen
+        if (pathWorld.Count < 2)
+        {
+            // Kein Pfad => wir bleiben in currentCell
+            targetCell = currentCell;
+            targetWorldPos = mazeManager.CellToWorld(currentCell);
+            return;
+        }
+
+        // 3) pathWorld[0] ist currentCell => pathWorld[1] ist der nächste Schritt
+        Vector3 nextPos = pathWorld[1];
+        targetCell = mazeManager.WorldToCell(nextPos);
+        targetWorldPos = nextPos;
+    }
+
+    // Optional: Kollision mit Player -> Kill
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (collision.gameObject.CompareTag("Player"))
@@ -70,10 +112,8 @@ public class EnemyMovement : MonoBehaviour
                 Debug.Log("Spieler ist unsterblich -> kein Kill!");
                 return;
             }
-
-            // Sonst -> Kill
-            Debug.Log("Gegner hat den Spieler erwischt!");
-            // z. B. GameManager.Instance.GameOver(false);
+            Debug.Log("Gegner (Pacman-Style) hat den Spieler erwischt!");
+            GameManager.Instance.GameOver(false);
         }
     }
 }

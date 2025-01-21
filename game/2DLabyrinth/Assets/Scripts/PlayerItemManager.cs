@@ -9,9 +9,17 @@ public class PlayerItemManager : MonoBehaviour
     private bool isInvincible = false;
     private float invincibleTimer = 0f;
 
+    private int originalLayer; // speichert den alten Layer (z.B. "Player")
+
+    void Start()
+    {
+        // Speichere den Ursprungs-Layer
+        originalLayer = gameObject.layer;
+    }
+
     void Update()
     {
-        // Tastenabfrage
+        // Taste 1 => Item A
         if (Input.GetKeyDown(KeyCode.Alpha1))
         {
             if (hasItemA)
@@ -27,6 +35,7 @@ public class PlayerItemManager : MonoBehaviour
             }
         }
 
+        // Taste 2 => Item B
         if (Input.GetKeyDown(KeyCode.Alpha2))
         {
             if (hasItemB)
@@ -35,6 +44,9 @@ public class PlayerItemManager : MonoBehaviour
                 hasItemB = false;
                 isInvincible = true;
                 invincibleTimer = 5f;
+
+                // Layer auf "InvinciblePlayer" setzen (Muss existieren!)
+                gameObject.layer = LayerMask.NameToLayer("InvinciblePlayer");
             }
         }
 
@@ -46,6 +58,9 @@ public class PlayerItemManager : MonoBehaviour
             {
                 isInvincible = false;
                 Debug.Log("Unsterblichkeit abgelaufen!");
+
+                // Layer zurück auf den ursprünglichen Layer
+                gameObject.layer = originalLayer;
             }
         }
     }
