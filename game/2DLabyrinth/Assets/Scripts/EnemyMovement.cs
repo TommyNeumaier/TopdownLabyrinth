@@ -1,31 +1,31 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 public class EnemyMovement : MonoBehaviour
 {
-    public float moveSpeed = 2f;          
-    private List<Vector3> path = new List<Vector3>(); 
-    private int targetIndex = 0;         
+    public float moveSpeed = 2f;
 
-    private Transform playerTransform;     
-    private MazeGenerator mazeGenerator;  
+    private List<Vector3> path = new List<Vector3>();
+    private int targetIndex = 0;
+
+    private Transform playerTransform;
+    private MazeManager mazeManager;
 
     void Start()
     {
+        // Suche einmalig den MazeManager in der Szene
+        mazeManager = FindObjectOfType<MazeManager>();
+        if (mazeManager == null)
+        {
+            Debug.LogError("Kein MazeManager in der Szene gefunden!");
+        }
+
+        // Spieler
         GameObject player = GameObject.FindGameObjectWithTag("Player");
         if (player != null)
         {
             playerTransform = player.transform;
-        }
-        else
-        {
-            Debug.LogError("Kein Spieler gefunden! Stelle sicher, dass der Spieler den Tag 'Player' hat.");
-        }
-
-        mazeGenerator = MazeGenerator.Instance;
-        if (mazeGenerator == null)
-        {
-            Debug.LogError("Kein MazeGenerator gefunden! Stelle sicher, dass das MazeGenerator-Skript als Singleton implementiert ist.");
         }
 
         StartCoroutine(UpdatePath());
@@ -33,15 +33,11 @@ public class EnemyMovement : MonoBehaviour
 
     void Update()
     {
-        if (path == null || path.Count == 0)
-            return;
-
-        if (targetIndex >= path.Count)
-            return;
+        if (path == null || path.Count == 0) return;
+        if (targetIndex >= path.Count) return;
 
         Vector3 dir = (path[targetIndex] - transform.position).normalized;
         Vector3 move = dir * moveSpeed * Time.deltaTime;
-
         transform.position += move;
 
         if (Vector3.Distance(transform.position, path[targetIndex]) < 0.2f)
@@ -50,16 +46,34 @@ public class EnemyMovement : MonoBehaviour
         }
     }
 
-    private System.Collections.IEnumerator UpdatePath()
+    private IEnumerator UpdatePath()
     {
         while (true)
         {
-            if (playerTransform != null && mazeGenerator != null)
+            if (mazeManager != null && playerTransform != null)
             {
-                path = mazeGenerator.FindPath(transform.position, playerTransform.position);
+                path = mazeManager.FindPath(transform.position, playerTransform.position);
                 targetIndex = 0;
             }
-            yield return new WaitForSeconds(1f); // Aktualisierung alle 1 Sekunde
+            // Pfad ca. 1x pro Sekunde aktualisieren
+            yield return new WaitForSeconds(1f);
+        }
+    }
+
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Player"))
+        {
+            var pim = collision.gameObject.GetComponent<PlayerItemManager>();
+            if (pim != null && pim.IsInvincible())
+            {
+                Debug.Log("Spieler ist unsterblich -> kein Kill!");
+                return;
+            }
+
+            // Sonst -> Kill
+            Debug.Log("Gegner hat den Spieler erwischt!");
+            // z. B. GameManager.Instance.GameOver(false);
         }
     }
 }
