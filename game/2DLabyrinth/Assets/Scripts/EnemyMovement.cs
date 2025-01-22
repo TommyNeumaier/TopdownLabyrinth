@@ -7,11 +7,16 @@ public class EnemyMovement : MonoBehaviour
     public float moveSpeed = 2f;             // Bewegungsgeschwindigkeit
     public float cellCenterThreshold = 0.05f; // Abstand, ab dem wir "im Zellzentrum" sind
 
+    public RuntimeAnimatorController moveUpController;
+    public RuntimeAnimatorController moveDownController;
+    public RuntimeAnimatorController moveLeftController;
+    public RuntimeAnimatorController moveRightController;
+
     private Rigidbody2D rb;
     private MazeManager mazeManager;
-    private Transform playerTransform; // (wird nicht mehr für Pfadfinden gebraucht, kann aber bleiben)
+    private Animator animator;
+    private Transform playerTransform; // Optional for further features
 
-    // Tilebasierte Zustände
     private Vector2Int currentCell;   // Zelle, in der wir uns aktuell befinden
     private Vector2Int targetCell;    // Zelle, zu der wir uns aktuell hinbewegen
     private Vector3 targetWorldPos;   // Weltposition des Zellenzentrums
@@ -19,11 +24,11 @@ public class EnemyMovement : MonoBehaviour
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
+        animator = GetComponent<Animator>();
         rb.gravityScale = 0f;
         rb.constraints = RigidbodyConstraints2D.FreezeRotation;
         rb.bodyType = RigidbodyType2D.Kinematic;
 
-        // MazeManager suchen
         mazeManager = MazeManager.Instance;
         if (mazeManager == null)
         {
@@ -31,20 +36,18 @@ public class EnemyMovement : MonoBehaviour
             return;
         }
 
-        // Player suchen (nur falls du z.B. Abstände messen oder Kollision checken willst)
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
         {
             playerTransform = playerObj.transform;
         }
 
-        // 1) Starte in einer gültigen Zelle
         currentCell = mazeManager.WorldToCell(transform.position);
         if (mazeManager.IsCellBlockedForEnemy(currentCell))
         {
-            // Falls wir in einer Wand oder auf einem Safepoint stehen:
-            currentCell = new Vector2Int(1, 1);
+            currentCell = new Vector2Int(1, 1); // Fallback
         }
+
         targetCell = currentCell;
         targetWorldPos = mazeManager.CellToWorld(targetCell);
         transform.position = targetWorldPos; // In Mitte snappen
@@ -54,30 +57,24 @@ public class EnemyMovement : MonoBehaviour
     {
         if (mazeManager == null) return;
 
-        // Prüfen, ob wir nahe am Mittelpunkt von targetCell sind
         float dist = Vector3.Distance(transform.position, targetWorldPos);
         if (dist < cellCenterThreshold)
         {
-            // Wir sind quasi im Zellzentrum => neue Richtung / neuen Schritt wählen
-            currentCell = targetCell; 
+            currentCell = targetCell;
             ChooseNextStep();
         }
+
+        UpdateAnimationDirection(); // Update animation controller
     }
 
     void FixedUpdate()
     {
-        // Bewege dich Richtung targetWorldPos
         Vector3 dir = (targetWorldPos - transform.position).normalized;
         rb.linearVelocity = dir * moveSpeed;
     }
 
-    /// <summary>
-    /// Wählt **zufällig** eine benachbarte Zelle aus, die weder Wand noch Safepoint ist.
-    /// (Dadurch betritt der Gegner keine Safe Spaces.)
-    /// </summary>
     private void ChooseNextStep()
     {
-        // 4 mögliche Richtungen
         Vector2Int[] directions =
         {
             new Vector2Int( 1, 0),
@@ -86,19 +83,16 @@ public class EnemyMovement : MonoBehaviour
             new Vector2Int( 0,-1)
         };
 
-        // Sammle alle Nachbarn, die NICHT blockiert sind
         List<Vector2Int> validNeighbors = new List<Vector2Int>();
         foreach (var dir in directions)
         {
             Vector2Int neighbor = currentCell + dir;
-            // "IsCellBlockedForEnemy" => true = Wand oder Safepoint
             if (!mazeManager.IsCellBlockedForEnemy(neighbor))
             {
                 validNeighbors.Add(neighbor);
             }
         }
 
-        // Wenn keine gültige Richtung vorhanden, bleibe stehen
         if (validNeighbors.Count == 0)
         {
             targetCell = currentCell;
@@ -106,14 +100,41 @@ public class EnemyMovement : MonoBehaviour
             return;
         }
 
-        // Zufällig eine der gültigen Zellen wählen
         Vector2Int chosenCell = validNeighbors[Random.Range(0, validNeighbors.Count)];
-
         targetCell = chosenCell;
         targetWorldPos = mazeManager.CellToWorld(targetCell);
     }
 
-    // Optional: Falls Kollision mit Spieler -> GameOver
+    private void UpdateAnimationDirection()
+    {
+        Vector2Int movementDirection = targetCell - currentCell;
+
+        if (movementDirection == Vector2Int.up) // Moving up
+        {
+            ChangeAnimatorController(moveUpController);
+        }
+        else if (movementDirection == Vector2Int.down) // Moving down
+        {
+            ChangeAnimatorController(moveDownController);
+        }
+        else if (movementDirection == Vector2Int.left) // Moving left
+        {
+            ChangeAnimatorController(moveLeftController);
+        }
+        else if (movementDirection == Vector2Int.right) // Moving right
+        {
+            ChangeAnimatorController(moveRightController);
+        }
+    }
+
+    private void ChangeAnimatorController(RuntimeAnimatorController newController)
+    {
+        if (animator.runtimeAnimatorController != newController)
+        {
+            animator.runtimeAnimatorController = newController;
+        }
+    }
+
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (collision.gameObject.CompareTag("Player"))
